@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Chat with Firebase</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        .container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 400px; text-align: center; }
+        h1 { color: #333; }
+        form { margin-bottom: 20px; }
+        input[type="email"], input[type="password"] { width: 90%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 95%; padding: 10px; border: none; border-radius: 4px; background-color: #007bff; color: white; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #chat-container { display: none; margin-top: 20px; text-align: left; }
+        #messages { max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+        .message-item { margin-bottom: 10px; padding: 8px; border-radius: 4px; }
+        .message-item.sent { text-align: right; }
+        .message-item.received { text-align: left; }
+        .message-text { display: inline-block; padding: 8px 12px; border-radius: 18px; max-width: 70%; word-wrap: break-word; }
+        .message-item.sent .message-text { background-color: #dcf8c6; }
+        .message-item.received .message-text { background-color: #f1f0f0; }
+        #message-form { display: flex; }
+        #message-input { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Real-time Chat</h1>
+
+        <div id="auth-section">
+            <h2>Login or Register</h2>
+            <form id="login-form">
+                <input type="email" id="login-email" placeholder="Email" required>
+                <input type="password" id="login-password" placeholder="Password" required>
+                <button type="submit">Login</button>
+            </form>
+            <button id="signup-btn">Create New Account</button>
+        </div>
+
+        <div id="chat-container">
+            <h2>Chat Room</h2>
+            <div id="messages"></div>
+            <form id="message-form">
+                <input type="text" id="message-input" placeholder="Type a message..." required>
+                <button type="submit">Send</button>
+            </form>
+            <button id="logout-btn">Logout</button>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+    <script>
+        // Your Firebase configuration from the screenshot
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        const authSection = document.getElementById('auth-section');
+        const chatContainer = document.getElementById('chat-container');
+        const loginForm = document.getElementById('login-form');
+        const signupBtn = document.getElementById('signup-btn');
+        const messageForm = document.getElementById('message-form');
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        // --- Authentication Logic ---
+        signupBtn.addEventListener('click', async () => {
+            const email = loginForm['login-email'].value;
+            const password = loginForm['login-password'].value;
+            try {
+                await auth.createUserWithEmailAndPassword(email, password);
+                alert("Account created successfully! You are now logged in.");
+            } catch (error) {
+                alert(error.message);
+            }
+        });
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = loginForm['login-email'].value;
+            const password = loginForm['login-password'].value;
+            try {
+                await auth.signInWithEmailAndPassword(email, password);
+            } catch (error) {
+                alert(error.message);
+            }
+        });
+
+        logoutBtn.addEventListener('click', async () => {
+            await auth.signOut();
+        });
+
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                // User is signed in, show the chat
+                authSection.style.display = 'none';
+                chatContainer.style.display = 'block';
+                // Load messages when user logs in
+                loadMessages();
+            } else {
+                // User is signed out, show the auth forms
+                authSection.style.display = 'block';
+                chatContainer.style.display = 'none';
+            }
+        });
+
+        // --- Firestore (Chat) Logic ---
+        messageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = messageInput.value;
+            if (message.trim() !== '') {
+                const user = auth.currentUser;
+                await db.collection('messages').add({
+                    text: message,
+                    sender: user.email,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                messageInput.value = ''; // Clear the input field
+            }
+        });
+
+        function loadMessages() {
+            db.collection('messages').orderBy('createdAt').onSnapshot(snapshot => {
+                messagesDiv.innerHTML = ''; // Clear previous messages
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const messageElement = document.createElement('div');
+                    const user = auth.currentUser;
+                    messageElement.classList.add('message-item');
+                    messageElement.classList.add(data.sender === user.email ? 'sent' : 'received');
+
+                    messageElement.innerHTML = `
+                        <div class="message-text">
+                            <strong>${data.sender.split('@')[0]}</strong><br>
+                            ${data.text}
+                        </div>
+                    `;
+                    messagesDiv.appendChild(messageElement);
+                });
+                // Scroll to the latest message
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            });
+        }
+    </script>
+</body>
+</html>
